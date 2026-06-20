@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ──────────────────────────────────────────────────────────────────
+
+model User {
+  id          String   @id @default(cuid())
+  githubId    String   @unique @map("github_id")
+  login       String
+  name        String?
+  email       String?
+  avatarUrl   String?  @map("avatar_url")
+  githubToken String   @map("github_token")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  sessions     Session[]
+  repositories Repository[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─── Repository ────────────────────────────────────────────────────────────
+
+model Repository {
+  id            String         @id @default(cuid())
+  userId        String         @map("user_id")
+  githubUrl     String         @map("github_url")
+  owner         String
+  name          String
+  fullName      String         @map("full_name")
+  defaultBranch String         @map("default_branch")
+  description   String?
+  language      String?
+  stars         Int            @default(0)
+  isPrivate     Boolean        @default(false) @map("is_private")
+  status        AnalysisStatus @default(PENDING)
+  contentHash   String?        @map("content_hash")
+  analyzedAt    DateTime?      @map("analyzed_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analysisJob      AnalysisJob?
+  architecture     Architecture?
+  modules          Module[]
+  fileExplanations FileExplanation[]
+  graphNodes       GraphNode[]
+  graphEdges       GraphEdge[]
+
+  @@unique([userId, fullName])
+  @@index([userId])
+  @@index([status])
+  @@map("repositories")
+}
+
+enum AnalysisStatus {
+  PENDING
+  FETCHING
+  ANALYZING
+  COMPLETED
+  FAILED
+}
+
+// ─── Job Tracking ──────────────────────────────────────────────────────────
+
+model AnalysisJob {
+  id           String    @id @default(cuid())
+  repositoryId String    @unique @map("repository_id")
+  bullJobId    String?   @map("bull_job_id")
+  progress     Int       @default(0)
+  currentStep  String?   @map("current_step")
+  errorMessage String?   @map("error_message")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@map("analysis_jobs")
+}
+
+// ─── Analysis Results ──────────────────────────────────────────────────────
+
+model Architecture {
+  id               String   @id @default(cuid())
+  repositoryId     String   @unique @map("repository_id")
+  overview         String   @db.Text
+  techStack        Json
+  patterns         Json
+  entryPoints      Json     @map("entry_points")
+  llmProvider      String   @map("llm_provider")
+  llmModel         String   @map("llm_model")
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@map("architectures")
+}
+
+model Module {
+  id             String   @id @default(cuid())
+  repositoryId   String   @map("repository_id")
+  name           String
+  path           String
+  summary        String   @db.Text
+  responsibility String   @db.Text
+  fileCount      Int      @map("file_count")
+  language       String?
+  exports        Json     @default("[]")
+  imports        Json     @default("[]")
+  llmProvider    String   @map("llm_provider")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId])
+  @@map("modules")
+}
+
+model FileExplanation {
+  id           String   @id @default(cuid())
+  repositoryId String   @map("repository_id")
+  filePath     String   @map("file_path")
+  contentHash  String   @map("content_hash")
+  explanation  String   @db.Text
+  purpose      String   @db.Text
+  keyFunctions Json     @map("key_functions")
+  dependencies Json     @default("[]")
+  llmProvider  String   @map("llm_provider")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, contentHash])
+  @@index([repositoryId])
+  @@index([filePath])
+  @@map("file_explanations")
+}
+
+// ─── Dependency Graph ──────────────────────────────────────────────────────
+
+model GraphNode {
+  id           String   @id @default(cuid())
+  repositoryId String   @map("repository_id")
+  nodeId       String   @map("node_id")
+  label        String
+  type         NodeType
+  path         String?
+  metadata     Json     @default("{}")
+
+  repository  Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  sourceEdges GraphEdge[] @relation("EdgeSource")
+  targetEdges GraphEdge[] @relation("EdgeTarget")
+
+  @@unique([repositoryId, nodeId])
+  @@index([repositoryId])
+  @@map("graph_nodes")
+}
+
+model GraphEdge {
+  id           String   @id @default(cuid())
+  repositoryId String   @map("repository_id")
+  sourceId     String   @map("source_id")
+  targetId     String   @map("target_id")
+  type         EdgeType
+  weight       Int      @default(1)
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  source     GraphNode  @relation("EdgeSource", fields: [repositoryId, sourceId], references: [repositoryId, nodeId])
+  target     GraphNode  @relation("EdgeTarget", fields: [repositoryId, targetId], references: [repositoryId, nodeId])
+
+  @@unique([repositoryId, sourceId, targetId, type])
+  @@index([repositoryId])
+  @@map("graph_edges")
+}
+
+enum NodeType {
+  FILE
+  MODULE
+  EXTERNAL_PACKAGE
+}
+
+enum EdgeType {
+  IMPORTS
+  DEPENDS_ON
+  EXTENDS
+  CALLS
+}
