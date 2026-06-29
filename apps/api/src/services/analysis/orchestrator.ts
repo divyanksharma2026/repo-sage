@@ -50,6 +50,7 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
       }
     }),
   )
+  await onProgress(20, 'Key files loaded')
 
   // ── 3. Architecture overview ────────────────────────────────────────
   await onProgress(25, 'Analyzing architecture')
@@ -106,6 +107,8 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
     },
   })
 
+  await onProgress(35, 'Architecture overview ready')
+
   // ── 4. Module summaries ─────────────────────────────────────────────
   await onProgress(40, 'Analyzing modules')
   // Clear stale module data so renamed/removed modules don't persist
@@ -113,7 +116,7 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
   const moduleMap = detectModules(allFiles)
   const moduleEntries = Array.from(moduleMap.entries()).slice(0, 5)
 
-  for (const [modulePath, moduleFiles] of moduleEntries) {
+  for (const [index, [modulePath, moduleFiles]] of moduleEntries.entries()) {
     await sleep(1000) // small delay to be polite to the API
     const moduleFileContents = await Promise.all(
         moduleFiles.slice(0, 3).map(async (f) => {
@@ -180,7 +183,12 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
           imports: modData.imports,
         },
       })
+
+      const moduleProgress = Math.min(65, 45 + index * 5)
+      await onProgress(moduleProgress, `Analyzed module ${modData.name}`)
   }
+
+  await onProgress(65, 'Module summaries ready')
 
   // ── 5. Dependency graph ─────────────────────────────────────────────
   await onProgress(70, 'Building dependency graph')
@@ -202,8 +210,10 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
         }
       }),
   )
+  await onProgress(75, 'Dependency files loaded')
 
   const graph = buildDependencyGraph({ files: graphFiles, fileContents })
+  await onProgress(80, 'Dependency graph built')
 
   await prisma.$transaction([
     prisma.graphNode.deleteMany({ where: { repositoryId } }),
@@ -231,9 +241,9 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
     }),
   ])
 
-  // ── 6. Mark complete ────────────────────────────────────────────────
-  await onProgress(100, 'Analysis complete')
+  await onProgress(85, 'Dependency graph ready')
 
+  // ── 6. Mark complete ────────────────────────────────────────────────
   await prisma.repository.update({
     where: { id: repositoryId },
     data: {
@@ -242,4 +252,6 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
       contentHash: crypto.createHash('sha256').update(fileTreeStr).digest('hex'),
     },
   })
+
+  await onProgress(100, 'Analysis complete')
 }

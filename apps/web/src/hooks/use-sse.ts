@@ -12,6 +12,11 @@ export function useSSE<T>({ url, enabled = true, onMessage }: SSEOptions<T>) {
   const [lastEvent, setLastEvent] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
+  const onMessageRef = useRef(onMessage)
+
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
   useEffect(() => {
     if (!enabled) return
@@ -23,7 +28,8 @@ export function useSSE<T>({ url, enabled = true, onMessage }: SSEOptions<T>) {
       try {
         const data = JSON.parse(event.data as string) as T
         setLastEvent(data)
-        onMessage?.(data)
+        setError(null)
+        onMessageRef.current?.(data)
       } catch {
         // ignore parse errors
       }
@@ -31,7 +37,6 @@ export function useSSE<T>({ url, enabled = true, onMessage }: SSEOptions<T>) {
 
     es.onerror = () => {
       setError('SSE connection lost')
-      es.close()
     }
 
     return () => {

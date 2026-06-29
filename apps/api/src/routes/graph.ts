@@ -14,9 +14,6 @@ export default async function graphRoutes(app: FastifyInstance): Promise<void> {
         where: { id: request.params.id, userId: request.user.id },
       })
       if (!repo) throw new NotFoundError('Repository')
-      if (repo.status !== 'COMPLETED') {
-        return reply.status(409).send({ error: 'Analysis not complete' })
-      }
 
       const cacheKey = repoGraphKey(repo.id)
       const cached = await getCached<DependencyGraph>(app.redis, cacheKey)
@@ -26,6 +23,10 @@ export default async function graphRoutes(app: FastifyInstance): Promise<void> {
         app.prisma.graphNode.findMany({ where: { repositoryId: repo.id } }),
         app.prisma.graphEdge.findMany({ where: { repositoryId: repo.id } }),
       ])
+
+      if (repo.status !== 'COMPLETED' && nodes.length === 0) {
+        return reply.status(409).send({ error: 'Dependency graph not ready yet' })
+      }
 
       const graph: DependencyGraph = {
         nodes: nodes.map((n) => ({

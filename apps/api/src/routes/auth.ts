@@ -8,9 +8,15 @@ const GITHUB_USER_URL = 'https://api.github.com/user'
 
 export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // GET /auth/github — redirect to GitHub OAuth
-  app.get('/auth/github', async (request, reply) => {
+  app.get('/auth/github', async (_request, reply) => {
     const state = crypto.randomBytes(16).toString('hex')
-    reply.setCookie('oauth_state', state, { httpOnly: true, maxAge: 600 })
+    reply.setCookie('oauth_state', state, {
+      httpOnly: true,
+      maxAge: 600,
+      path: '/',
+      secure: env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    })
 
     const url = new URL(GITHUB_AUTH_URL)
     url.searchParams.set('client_id', env.GITHUB_CLIENT_ID)
@@ -31,6 +37,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!savedState || savedState !== state) {
         return reply.status(400).send({ error: 'Invalid state parameter' })
       }
+
+      reply.clearCookie('oauth_state', { path: '/' })
 
       // Exchange code for access token
       const tokenRes = await fetch(GITHUB_TOKEN_URL, {

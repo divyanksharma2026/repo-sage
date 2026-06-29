@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { useRepo } from '@/hooks/use-repo'
 import { useSSE } from '@/hooks/use-sse'
@@ -8,15 +9,56 @@ import type { SSEProgressEvent } from '@reposage/types'
 
 export default function RepoPage() {
   const { repoId } = useParams<{ repoId: string }>()
-  const { repo, loading, error, refetch } = useRepo(repoId)
+  const { repo, loading, error, refetch, setRepo } = useRepo(repoId)
+  const refetchedMilestones = useRef<Set<number>>(new Set())
 
   const isAnalyzing = repo?.status === 'FETCHING' || repo?.status === 'ANALYZING' || repo?.status === 'PENDING'
+  const progress = repo?.analysisJob?.progress ?? 0
+  const graphReady = repo?.status === 'COMPLETED' || progress >= 85
+
+  useEffect(() => {
+    if (!isAnalyzing) return
+
+    const interval = window.setInterval(() => {
+      void refetch()
+    }, 2000)
+
+    return () => window.clearInterval(interval)
+  }, [isAnalyzing, refetch])
 
   useSSE<SSEProgressEvent>({
     url: `/api/repos/${repoId}/status`,
     enabled: isAnalyzing,
     onMessage: (event) => {
-      if (event.status === 'COMPLETED' || event.status === 'FAILED') {
+      setRepo((current) => {
+        if (!current) return current
+
+        return {
+          ...current,
+          status: event.status,
+          analysisJob: {
+            id: current.analysisJob?.id ?? event.jobId,
+            repositoryId: event.repositoryId,
+            bullJobId: event.jobId,
+            progress: event.progress,
+            currentStep: event.currentStep,
+            errorMessage: event.errorMessage ?? null,
+            startedAt: current.analysisJob?.startedAt ?? null,
+            completedAt:
+              event.status === 'COMPLETED'
+                ? new Date().toISOString()
+                : current.analysisJob?.completedAt ?? null,
+          },
+        }
+      })
+
+      const shouldRefetch =
+        event.status === 'COMPLETED' ||
+        event.status === 'FAILED' ||
+        [35, 45, 55, 65, 85].includes(event.progress)
+
+      if (shouldRefetch && !refetchedMilestones.current.has(event.progress)) {
+        refetchedMilestones.current.add(event.progress)
         void refetch()
       }
     },
@@ -38,39 +80,51 @@ export default function RepoPage() {
           </div>
         </div>
 
-        {isAnalyzing && (
+        {(isAnalyzing || repo.status === 'FAILED') && (
           <div className="bg-card border border-border rounded-lg p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">
                 {repo.analysisJob?.currentStep ?? 'Queued'}
               </span>
-              <span>{repo.analysisJob?.progress ?? 0}%</span>
+              <span>{progress}%</span>
             </div>
             <div className="h-2 bg-secondary rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-500"
-                style={{ width: `${repo.analysisJob?.progress ?? 0}%` }}
+                style={{ width: `${progress}%` }}
               />
             </div>
+            {repo.analysisJob?.errorMessage && (
+              <p className="text-xs text-red-400">{repo.analysisJob.errorMessage}</p>
+            )}
           </div>
         )}
 
-        {repo.status === 'COMPLETED' && (
+        {(repo.status === 'COMPLETED' || repo.architecture || repo.modules.length > 0 || graphReady) && (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {[
-              { label: 'Architecture', href: `/repos/${repoId}/architecture` },
-              { label: 'Modules', href: `/repos/${repoId}/modules` },
-              { label: 'Files', href: `/repos/${repoId}/files` },
-              { label: 'Graph', href: `/repos/${repoId}/graph` },
-            ].map((tab) => (
-              <Link
-                key={tab.label}
-                href={tab.href}
-                className="bg-card border border-border rounded-lg p-4 text-center font-medium hover:border-ring hover:bg-accent transition-colors"
-              >
-                {tab.label}
-              </Link>
-            ))}
+              { label: 'Architecture', href: `/repos/${repoId}/architecture`, available: Boolean(repo.architecture) },
+              { label: 'Modules', href: `/repos/${repoId}/modules`, available: repo.modules.length > 0 },
+              { label: 'Files', href: `/repos/${repoId}/files`, available: graphReady },
+              { label: 'Graph', href: `/repos/${repoId}/graph`, available: graphReady },
+            ].map((tab) =>
+              tab.available ? (
+                <Link
+                  key={tab.label}
+                  href={tab.href}
+                  className="bg-card border border-border rounded-lg p-4 text-center font-medium hover:border-ring hover:bg-accent transition-colors"
+                >
+                  {tab.label}
+                </Link>
+              ) : (
+                <div
+                  key={tab.label}
+                  className="bg-card border border-border rounded-lg p-4 text-center font-medium text-muted-foreground opacity-50"
+                >
+                  {tab.label}
+                </div>
+              ),
+            )}
           </div>
         )}
 
