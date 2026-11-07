@@ -1,20 +1,32 @@
 'use client'
 
-import { useParams } from 'next/navigation'
-import { useRepo } from '@/hooks/use-repo'
+import { useRepoRoute } from '@/hooks/use-repo'
+import { RepoBackLink } from '@/components/repo-back-link'
 
 export default function ArchitecturePage() {
-  const { repoId } = useParams<{ repoId: string }>()
-  const { repo, loading } = useRepo(repoId)
+  const { repo, loading } = useRepoRoute()
 
-  if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>
-  if (!repo?.architecture) return <div className="p-8 text-muted-foreground">No architecture data yet.</div>
+  if (loading)
+    return (
+    <div className="min-h-screen bg-background p-8 space-y-4">
+      <RepoBackLink />
+      <p className="text-muted-foreground">Loading...</p>
+    </div>
+    )
+  if (!repo?.architecture)
+    return (
+      <div className="min-h-screen bg-background p-8 space-y-4">
+        <RepoBackLink />
+        <p className="text-muted-foreground">No architecture data yet.</p>
+      </div>
+    )
 
   const arch = repo.architecture
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-3xl mx-auto space-y-8">
+        <RepoBackLink />
         <h1 className="text-2xl font-bold">Architecture Overview</h1>
 
         <div className="bg-card border border-border rounded-lg p-6 space-y-4">

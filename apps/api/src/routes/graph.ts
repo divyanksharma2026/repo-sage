@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
-import { requireAuth } from '../middleware/require-auth.js'
-import { NotFoundError } from '../lib/errors.js'
+import { optionalAuth } from '../middleware/optional-auth.js'
+import { assertRepoAccess } from '../lib/access.js'
 import { getCached, setCached, repoGraphKey } from '../services/cache/redis-cache.js'
 import type { DependencyGraph } from '@reposage/types'
 
@@ -8,12 +8,12 @@ export default async function graphRoutes(app: FastifyInstance): Promise<void> {
   // GET /repos/:id/graph
   app.get<{ Params: { id: string } }>(
     '/repos/:id/graph',
-    { preHandler: requireAuth },
+    { preHandler: optionalAuth },
     async (request, reply) => {
-      const repo = await app.prisma.repository.findFirst({
-        where: { id: request.params.id, userId: request.user.id },
+      const found = await app.prisma.repository.findUnique({
+        where: { id: request.params.id },
       })
-      if (!repo) throw new NotFoundError('Repository')
+      const repo = await assertRepoAccess(found, request.currentUser)
 
       const cacheKey = repoGraphKey(repo.id)
       const cached = await getCached<DependencyGraph>(app.redis, cacheKey)

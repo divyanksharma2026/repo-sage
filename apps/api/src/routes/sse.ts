@@ -1,20 +1,20 @@
 import { FastifyInstance } from 'fastify'
-import { requireAuth } from '../middleware/require-auth.js'
+import { optionalAuth } from '../middleware/optional-auth.js'
+import { assertRepoAccess } from '../lib/access.js'
 import { createRedisClient } from '../lib/redis.js'
 import { sseChannel } from '../workers/sse-publisher.js'
-import { NotFoundError } from '../lib/errors.js'
 
 export default async function sseRoutes(app: FastifyInstance): Promise<void> {
   // GET /repos/:id/status — SSE stream for job progress
   app.get<{ Params: { id: string } }>(
     '/repos/:id/status',
-    { preHandler: requireAuth },
+    { preHandler: optionalAuth },
     async (request, reply) => {
-      const repo = await app.prisma.repository.findFirst({
-        where: { id: request.params.id, userId: request.user.id },
+      const found = await app.prisma.repository.findUnique({
+        where: { id: request.params.id },
         include: { analysisJob: true },
       })
-      if (!repo) throw new NotFoundError('Repository')
+      const repo = await assertRepoAccess(found, request.currentUser)
 
       const subscriber = createRedisClient()
       const channel = sseChannel(repo.id)
@@ -26,7 +26,40 @@ export default async function sseRoutes(app: FastifyInstance): Promise<void> {
         'X-Accel-Buffering': 'no',
       })
 
-      // Send current state immediately
+      let closed = false
+      const keepAlive = setInterval(() => {
+        reply.raw.write(': ping\n\n')
+      }, 20_000)
+
+      // Registered before the first await: a client that disconnects during
+      // subscribe() used to leave this Redis connection open forever.
+      const cleanup = () => {
+        if (closed) return
+        closed = true
+        clearInterval(keepAlive)
+        void subscriber.unsubscribe(channel).catch(() => {})
+        void subscriber.quit().catch(() => {})
+      }
+      request.raw.on('close', cleanup)
+
+      // Subscribe first, then send the snapshot, so nothing published in
+      // between is lost. Events that arrive before the snapshot is written are
+      // buffered and flushed after it, keeping progress monotonic.
+      let snapshotSent = false
+      const pending: string[] = []
+
+      subscriber.on('message', (_channel, message) => {
+        if (closed) return
+        if (!snapshotSent) {
+          pending.push(message)
+          return
+        }
+        reply.raw.write(`data: ${message}\n\n`)
+      })
+
+      await subscriber.subscribe(channel)
+      if (closed) return
+
       reply.raw.write(
         `data: ${JSON.stringify({
           repositoryId: repo.id,
@@ -35,22 +68,10 @@ export default async function sseRoutes(app: FastifyInstance): Promise<void> {
           status: repo.status,
         })}\n\n`,
       )
+      snapshotSent = true
 
-      await subscriber.subscribe(channel)
-
-      subscriber.on('message', (_channel, message) => {
-        reply.raw.write(`data: ${message}\n\n`)
-      })
-
-      const keepAlive = setInterval(() => {
-        reply.raw.write(': ping\n\n')
-      }, 20_000)
-
-      request.raw.on('close', async () => {
-        clearInterval(keepAlive)
-        await subscriber.unsubscribe(channel)
-        await subscriber.quit()
-      })
+      for (const message of pending) reply.raw.write(`data: ${message}\n\n`)
+      pending.length = 0
     },
   )
 }

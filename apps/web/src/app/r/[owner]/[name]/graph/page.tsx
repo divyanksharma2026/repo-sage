@@ -1,6 +1,7 @@
 'use client'
 
-import { useParams } from 'next/navigation'
+import { useRepoRoute } from '@/hooks/use-repo'
+import { RepoBackLink } from '@/components/repo-back-link'
 import { useEffect, useState, useCallback } from 'react'
 import {
   ReactFlow,
@@ -43,12 +44,13 @@ const nodeColor = (type: string) => {
 }
 
 export default function GraphPage() {
-  const { repoId } = useParams<{ repoId: string }>()
+  const { repoId } = useRepoRoute()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [loading, setLoading] = useState(true)
 
   const fetchGraph = useCallback(async () => {
+    if (!repoId) return // still resolving owner/name → id
     const data = await api.get<{ graph: DependencyGraph }>(`/repos/${repoId}/graph`)
     const { graph } = data
 
@@ -82,11 +84,21 @@ export default function GraphPage() {
 
   useEffect(() => { void fetchGraph() }, [fetchGraph])
 
-  if (loading) return <div className="p-8 text-muted-foreground">Building dependency graph...</div>
-  if (nodes.length === 0) return <div className="p-8 text-muted-foreground">No graph data available.</div>
+  if (loading || nodes.length === 0)
+    return (
+      <div className="min-h-screen bg-background p-8 space-y-4">
+        <RepoBackLink />
+        <p className="text-muted-foreground">
+          {loading ? 'Building dependency graph...' : 'No graph data available.'}
+        </p>
+      </div>
+    )
 
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
+    <div style={{ width: '100vw', height: '100vh' }} className="relative">
+      <div className="absolute top-4 left-4 z-10 bg-card/90 backdrop-blur border border-border rounded-md px-3 py-1.5">
+        <RepoBackLink />
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}

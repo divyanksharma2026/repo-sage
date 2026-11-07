@@ -2,7 +2,6 @@ export type AnalysisStatus = 'PENDING' | 'FETCHING' | 'ANALYZING' | 'COMPLETED' 
 
 export interface Repository {
   id: string
-  userId: string
   githubUrl: string
   owner: string
   name: string
@@ -18,7 +17,19 @@ export interface Repository {
 }
 
 export interface RepositoryListItem
-  extends Pick<Repository, 'id' | 'fullName' | 'description' | 'language' | 'stars' | 'status' | 'analyzedAt'> {}
+  extends Pick<
+    Repository,
+    | 'id'
+    | 'owner'
+    | 'name'
+    | 'fullName'
+    | 'description'
+    | 'language'
+    | 'stars'
+    | 'isPrivate'
+    | 'status'
+    | 'analyzedAt'
+  > {}
 
 export interface User {
   id: string

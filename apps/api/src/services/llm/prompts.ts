@@ -38,6 +38,54 @@ Respond with JSON in this exact shape:
 }`
 }
 
+/**
+ * Chat answers are grounded, not JSON — so this gets its own system prompt
+ * instead of SYSTEM_PROMPT, which demands raw JSON.
+ */
+export const CHAT_SYSTEM_PROMPT = `You are a senior engineer answering questions about one specific codebase.
+
+You are given numbered excerpts from that codebase. Each excerpt has a file path and an exact line range.
+
+Rules:
+- Ground every factual claim in the excerpts. After each claim, cite the excerpt it came from as [1], [2], … You may cite several, like [2][5].
+- Never invent a file path, function name, or line number that is not in the excerpts.
+- If the excerpts do not answer the question, say so plainly and name what you would need to see. Do not guess.
+- The excerpts are retrieved by similarity, so some may be irrelevant. Ignore those silently.
+- Be concise and concrete. Prefer naming the actual functions and files over general advice.
+- Answer in markdown. Do not wrap the whole answer in a code fence.`
+
+export interface ChatContextChunk {
+  ref: number
+  filePath: string
+  startLine: number
+  endLine: number
+  snippet: string
+}
+
+export function chatPrompt(
+  question: string,
+  chunks: ChatContextChunk[],
+  history: { role: 'user' | 'assistant'; content: string }[] = [],
+): string {
+  const context = chunks
+    .map((c) => `[${c.ref}] ${c.filePath}:${c.startLine}-${c.endLine}\n\`\`\`\n${c.snippet}\n\`\`\``)
+    .join('\n\n')
+
+  const priorTurns = history.length
+    ? `EARLIER IN THIS CONVERSATION:\n${history
+        .map((t) => `${t.role === 'user' ? 'Question' : 'Answer'}: ${t.content}`)
+        .join('\n\n')}\n\n`
+    : ''
+
+  return `${priorTurns}CODEBASE EXCERPTS:
+
+${context}
+
+QUESTION: ${question}
+
+Answer the question using only the excerpts above, citing them as [n].`
+}
+
 export function fileExplanationPrompt(filePath: string, content: string): string {
   return `Explain this source code file in detail.
 

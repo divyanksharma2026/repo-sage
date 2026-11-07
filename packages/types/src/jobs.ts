@@ -1,10 +1,12 @@
 export interface RepoAnalysisJobData {
   repositoryId: string
-  userId: string
+  /** null when an anonymous visitor triggered the analysis of a public repo. */
+  userId: string | null
   owner: string
   name: string
   defaultBranch: string
-  githubToken: string
+  /** Absent for anonymous runs — the worker then falls back to GITHUB_PAT. */
+  githubToken?: string
 }
 
 export interface SSEProgressEvent {

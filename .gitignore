@@ -8,3 +8,6 @@ dist
 .DS_Store
 prisma/migrations
 coverage
+
+# TypeScript incremental build cache
+*.tsbuildinfo
