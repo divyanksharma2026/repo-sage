@@ -1,63 +1,102 @@
 'use client'
 
+import { Boxes, FileCode2 } from 'lucide-react'
 import { useRepoRoute } from '@/hooks/use-repo'
 import { RepoBackLink } from '@/components/repo-back-link'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/empty-state'
+import { PageShell, PageHeading } from '@/components/page-shell'
 
 export default function ModulesPage() {
   const { repo, loading } = useRepoRoute()
 
-  if (loading)
+  if (loading) {
     return (
-    <div className="min-h-screen bg-background p-8 space-y-4">
-      <RepoBackLink />
-      <p className="text-muted-foreground">Loading...</p>
-    </div>
+      <PageShell width="wide">
+        <div className="space-y-6">
+          <RepoBackLink />
+          <Skeleton className="h-8 w-48" />
+          <div className="grid gap-4 md:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-44" />
+            ))}
+          </div>
+        </div>
+      </PageShell>
     )
-  if (!repo)
+  }
+
+  if (!repo || repo.modules.length === 0) {
     return (
-    <div className="min-h-screen bg-background p-8 space-y-4">
-      <RepoBackLink />
-      <p className="text-muted-foreground">Could not load this repository.</p>
-    </div>
+      <PageShell width="wide">
+        <div className="space-y-6">
+          <RepoBackLink />
+          <EmptyState
+            icon={Boxes}
+            title={repo ? 'No modules detected yet' : 'Could not load this repository'}
+            description={
+              repo
+                ? 'Module summaries land partway through the analysis. Head back to watch progress.'
+                : undefined
+            }
+          />
+        </div>
+      </PageShell>
     )
+  }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <PageShell width="wide">
+      <div className="space-y-8">
         <RepoBackLink />
-        <h1 className="text-2xl font-bold">Modules</h1>
-        <p className="text-muted-foreground text-sm">{repo.modules.length} modules detected</p>
+        <PageHeading
+          title="Modules"
+          description={`${repo.modules.length} detected in ${repo.fullName}`}
+        />
 
         <div className="grid gap-4 md:grid-cols-2">
-          {repo.modules.map((mod) => (
-            <div key={mod.id} className="bg-card border border-border rounded-lg p-5 space-y-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="font-semibold">{mod.name}</h2>
-                  <p className="text-xs text-muted-foreground font-mono">{mod.path}</p>
-                </div>
-                <span className="text-xs text-muted-foreground">{mod.fileCount} files</span>
-              </div>
-
-              <p className="text-sm text-muted-foreground">{mod.responsibility}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{mod.summary}</p>
-
-              {(mod.imports as string[]).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium">Dependencies</p>
-                  <div className="flex flex-wrap gap-1">
-                    {(mod.imports as string[]).map((dep) => (
-                      <span key={dep} className="bg-secondary text-xs px-2 py-0.5 rounded font-mono">
-                        {dep}
-                      </span>
-                    ))}
+          {repo.modules.map((mod) => {
+            const imports = mod.imports as string[]
+            return (
+              <Card key={mod.id} className="flex flex-col gap-3 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold">{mod.name}</h2>
+                    <p className="truncate font-mono text-xs text-muted-foreground">{mod.path}</p>
                   </div>
+                  <Badge variant="outline" className="shrink-0">
+                    <FileCode2 />
+                    {mod.fileCount}
+                  </Badge>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {mod.responsibility && (
+                  <p className="text-sm font-medium leading-relaxed">{mod.responsibility}</p>
+                )}
+                <p className="text-sm leading-relaxed text-muted-foreground">{mod.summary}</p>
+
+                {imports.length > 0 && (
+                  <div className="mt-auto space-y-1.5 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Dependencies</p>
+                    <div className="flex flex-wrap gap-1">
+                      {imports.map((dep) => (
+                        <span
+                          key={dep}
+                          className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-secondary-foreground"
+                        >
+                          {dep}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )
+          })}
         </div>
       </div>
-    </div>
+    </PageShell>
   )
 }
