@@ -20,8 +20,8 @@ model User {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  sessions     Session[]
-  repositories Repository[]
+  sessions   Session[]
+  savedRepos UserRepository[]
 
   @@map("users")
 }
@@ -42,13 +42,15 @@ model Session {
 
 // ─── Repository ────────────────────────────────────────────────────────────
 
+// One row per GitHub repository, globally — NOT per user. A public repo is
+// analyzed once and read by everyone, which is what makes a shared link cheap.
+// Who may read it is decided by `isPrivate` + UserRepository, see lib/access.ts.
 model Repository {
   id            String         @id @default(cuid())
-  userId        String         @map("user_id")
   githubUrl     String         @map("github_url")
   owner         String
   name          String
-  fullName      String         @map("full_name")
+  fullName      String         @unique @map("full_name")
   defaultBranch String         @map("default_branch")
   description   String?
   language      String?
@@ -60,18 +62,35 @@ model Repository {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savedBy          UserRepository[]
   analysisJob      AnalysisJob?
   architecture     Architecture?
   modules          Module[]
   fileExplanations FileExplanation[]
   graphNodes       GraphNode[]
   graphEdges       GraphEdge[]
+  codeChunks       CodeChunk[]
 
-  @@unique([userId, fullName])
-  @@index([userId])
   @@index([status])
+  @@index([owner, name])
   @@map("repositories")
+}
+
+// A user's saved list. For a private repo this row is also the access grant:
+// it is only created after GitHub itself confirmed the user can read the repo.
+model UserRepository {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  repositoryId String   @map("repository_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, repositoryId])
+  @@index([userId])
+  @@index([repositoryId])
+  @@map("user_repositories")
 }
 
 enum AnalysisStatus {
@@ -159,6 +178,35 @@ model FileExplanation {
   @@index([repositoryId])
   @@index([filePath])
   @@map("file_explanations")
+}
+
+// ─── Semantic Search ───────────────────────────────────────────────────────
+
+// One embedded slice of a source file. startLine/endLine are 1-indexed and
+// inclusive — they are what citations in chat answers point at.
+//
+// `embedding` is a pgvector column, which Prisma cannot read or write through
+// the generated client. Inserts and similarity search go through $queryRaw in
+// services/search/. The dimension is fixed at 768, so every embedding provider
+// must produce 768-dim vectors (see services/embeddings/factory.ts).
+model CodeChunk {
+  id             String   @id @default(cuid())
+  repositoryId   String   @map("repository_id")
+  filePath       String   @map("file_path")
+  startLine      Int      @map("start_line")
+  endLine        Int      @map("end_line")
+  content        String   @db.Text
+  contentHash    String   @map("content_hash")
+  embedding      Unsupported("vector(768)")?
+  embeddingModel String   @map("embedding_model")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([repositoryId, contentHash])
+  @@index([repositoryId])
+  @@index([filePath])
+  @@map("code_chunks")
 }
 
 // ─── Dependency Graph ──────────────────────────────────────────────────────

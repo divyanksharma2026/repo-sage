@@ -1,20 +1,21 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
-import { useRepo } from '@/hooks/use-repo'
+import { useRepoRoute } from '@/hooks/use-repo'
 import { useSSE } from '@/hooks/use-sse'
 import Link from 'next/link'
 import type { SSEProgressEvent } from '@reposage/types'
 
 export default function RepoPage() {
-  const { repoId } = useParams<{ repoId: string }>()
-  const { repo, loading, error, refetch, setRepo } = useRepo(repoId)
+  const { repo, repoId, owner, name, loading, error, refetch, setRepo } = useRepoRoute()
+  const base = `/r/${owner}/${name}`
   const refetchedMilestones = useRef<Set<number>>(new Set())
 
   const isAnalyzing = repo?.status === 'FETCHING' || repo?.status === 'ANALYZING' || repo?.status === 'PENDING'
   const progress = repo?.analysisJob?.progress ?? 0
   const graphReady = repo?.status === 'COMPLETED' || progress >= 85
+  // The search index is the last stage before completion (see orchestrator).
+  const chatReady = repo?.status === 'COMPLETED' || progress >= 97
 
   useEffect(() => {
     if (!isAnalyzing) return
@@ -28,7 +29,7 @@ export default function RepoPage() {
 
   useSSE<SSEProgressEvent>({
     url: `/api/repos/${repoId}/status`,
-    enabled: isAnalyzing,
+    enabled: isAnalyzing && repoId !== null,
     onMessage: (event) => {
       setRepo((current) => {
         if (!current) return current
@@ -64,13 +65,30 @@ export default function RepoPage() {
     },
   })
 
-  if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>
-  if (error) return <div className="p-8 text-red-500">{error}</div>
-  if (!repo) return null
+  if (loading || error || !repo)
+    return (
+      <div className="min-h-screen bg-background p-8 space-y-4">
+        <Link
+          href="/repos"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <span aria-hidden>←</span> All repositories
+        </Link>
+        <p className={error ? 'text-red-500' : 'text-muted-foreground'}>
+          {loading ? 'Loading...' : (error ?? 'Could not load this repository.')}
+        </p>
+      </div>
+    )
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-5xl mx-auto space-y-8">
+        <Link
+          href="/repos"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <span aria-hidden>←</span> All repositories
+        </Link>
         <div className="space-y-1">
           <h1 className="text-3xl font-bold">{repo.fullName}</h1>
           {repo.description && <p className="text-muted-foreground">{repo.description}</p>}
@@ -101,12 +119,13 @@ export default function RepoPage() {
         )}
 
         {(repo.status === 'COMPLETED' || repo.architecture || repo.modules.length > 0 || graphReady) && (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
             {[
-              { label: 'Architecture', href: `/repos/${repoId}/architecture`, available: Boolean(repo.architecture) },
-              { label: 'Modules', href: `/repos/${repoId}/modules`, available: repo.modules.length > 0 },
-              { label: 'Files', href: `/repos/${repoId}/files`, available: graphReady },
-              { label: 'Graph', href: `/repos/${repoId}/graph`, available: graphReady },
+              { label: 'Architecture', href: `${base}/architecture`, available: Boolean(repo.architecture) },
+              { label: 'Modules', href: `${base}/modules`, available: repo.modules.length > 0 },
+              { label: 'Files', href: `${base}/files`, available: graphReady },
+              { label: 'Graph', href: `${base}/graph`, available: graphReady },
+              { label: 'Ask', href: `${base}/chat`, available: chatReady },
             ].map((tab) =>
               tab.available ? (
                 <Link

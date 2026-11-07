@@ -1,18 +1,30 @@
 'use client'
 
-import { useParams } from 'next/navigation'
-import { useRepo } from '@/hooks/use-repo'
+import { useRepoRoute } from '@/hooks/use-repo'
+import { RepoBackLink } from '@/components/repo-back-link'
 
 export default function ModulesPage() {
-  const { repoId } = useParams<{ repoId: string }>()
-  const { repo, loading } = useRepo(repoId)
+  const { repo, loading } = useRepoRoute()
 
-  if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>
-  if (!repo) return null
+  if (loading)
+    return (
+    <div className="min-h-screen bg-background p-8 space-y-4">
+      <RepoBackLink />
+      <p className="text-muted-foreground">Loading...</p>
+    </div>
+    )
+  if (!repo)
+    return (
+    <div className="min-h-screen bg-background p-8 space-y-4">
+      <RepoBackLink />
+      <p className="text-muted-foreground">Could not load this repository.</p>
+    </div>
+    )
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-4xl mx-auto space-y-6">
+        <RepoBackLink />
         <h1 className="text-2xl font-bold">Modules</h1>
         <p className="text-muted-foreground text-sm">{repo.modules.length} modules detected</p>
 

@@ -18,6 +18,7 @@ import {
   SYSTEM_PROMPT,
 } from '../llm/prompts.js'
 import { buildDependencyGraph } from './graph.js'
+import { indexRepository } from '../search/indexer.js'
 import type { RepoAnalysisJobData } from '@reposage/types'
 
 export type ProgressCallback = (progress: number, step: string) => Promise<void>
@@ -243,7 +244,23 @@ export async function runAnalysis(job: RepoAnalysisJobData, onProgress: Progress
 
   await onProgress(85, 'Dependency graph ready')
 
-  // ── 6. Mark complete ────────────────────────────────────────────────
+  // ── 6. Semantic search index ────────────────────────────────────────
+  // Deliberately non-fatal: a missing or rate-limited embedding key should
+  // cost the repo its chat feature, not its whole analysis. /repos/:id/chat
+  // reports an unbuilt index on its own.
+  await onProgress(88, 'Indexing code for search')
+  try {
+    const result = await indexRepository(repositoryId, fileContents, async (fraction) => {
+      await onProgress(88 + Math.round(fraction * 9), 'Embedding code for search')
+    })
+    await onProgress(97, `Indexed ${result.chunks} chunks from ${result.files} files`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error(`Search indexing failed for ${repositoryId}:`, message)
+    await onProgress(97, 'Search indexing skipped')
+  }
+
+  // ── 7. Mark complete ────────────────────────────────────────────────
   await prisma.repository.update({
     where: { id: repositoryId },
     data: {

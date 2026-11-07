@@ -1,11 +1,12 @@
 import { FastifyInstance } from 'fastify'
-import { requireAuth } from '../middleware/require-auth.js'
+import { optionalAuth } from '../middleware/optional-auth.js'
+import { assertRepoAccess, githubTokenFor } from '../lib/access.js'
+import { RATE_LIMITS } from '../lib/rate-limits.js'
 import { getLLMProvider } from '../services/llm/factory.js'
 import { fileExplanationPrompt, SYSTEM_PROMPT } from '../services/llm/prompts.js'
 import { getCached, setCached, fileExplanationKey } from '../services/cache/redis-cache.js'
 import { createGithubClient } from '../services/github/client.js'
 import { fetchFileContent } from '../services/github/fetcher.js'
-import { NotFoundError } from '../lib/errors.js'
 import crypto from 'crypto'
 import type { FileExplanation } from '@reposage/types'
 
@@ -13,12 +14,12 @@ export default async function explainRoutes(app: FastifyInstance): Promise<void>
   // GET /repos/:id/files — list all files in the repo (from graph nodes)
   app.get<{ Params: { id: string } }>(
     '/repos/:id/files',
-    { preHandler: requireAuth },
+    { preHandler: optionalAuth },
     async (request, reply) => {
-      const repo = await app.prisma.repository.findFirst({
-        where: { id: request.params.id, userId: request.user.id },
+      const found = await app.prisma.repository.findUnique({
+        where: { id: request.params.id },
       })
-      if (!repo) throw new NotFoundError('Repository')
+      const repo = await assertRepoAccess(found, request.currentUser)
 
       const nodes = await app.prisma.graphNode.findMany({
         where: { repositoryId: repo.id, type: 'FILE', path: { not: null } },
@@ -35,18 +36,21 @@ export default async function explainRoutes(app: FastifyInstance): Promise<void>
   // GET /repos/:id/files/explain?path=src/index.ts — streaming SSE file explanation
   app.get<{ Params: { id: string }; Querystring: { path: string } }>(
     '/repos/:id/files/explain',
-    { preHandler: requireAuth },
+    {
+      preHandler: optionalAuth,
+      config: { rateLimit: RATE_LIMITS.explain },
+    },
     async (request, reply) => {
       const { path: filePath } = request.query
       if (!filePath) return reply.status(400).send({ error: 'path query param is required' })
 
-      const repo = await app.prisma.repository.findFirst({
-        where: { id: request.params.id, userId: request.user.id },
+      const found = await app.prisma.repository.findUnique({
+        where: { id: request.params.id },
       })
-      if (!repo) throw new NotFoundError('Repository')
+      const repo = await assertRepoAccess(found, request.currentUser)
 
       // Fetch file content
-      const octokit = createGithubClient(request.user.githubToken)
+      const octokit = createGithubClient(githubTokenFor(repo, request.currentUser))
       let content: string
       try {
         content = await fetchFileContent(octokit, repo.owner, repo.name, filePath)
