@@ -1,6 +1,7 @@
 'use client'
 
-import { useParams } from 'next/navigation'
+import { useRepoRoute } from '@/hooks/use-repo'
+import { RepoBackLink } from '@/components/repo-back-link'
 import { useEffect, useState } from 'react'
 import { useFileExplanation } from '@/hooks/use-file-explanation'
 import { api } from '@/lib/api-client'
@@ -86,15 +87,16 @@ function FileTree({
 }
 
 export default function FilesPage() {
-  const { repoId } = useParams<{ repoId: string }>()
+  const { repoId } = useRepoRoute()
   const [files, setFiles] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState('')
   const [search, setSearch] = useState('')
-  const { text, streaming, explain } = useFileExplanation(repoId)
+  const { text, streaming, explain } = useFileExplanation(repoId ?? '')
 
   useEffect(() => {
+    if (!repoId) return // still resolving owner/name → id
     api.get<{ files: string[] }>(`/repos/${repoId}/files`)
       .then((d) => { setFiles(d.files); setLoading(false) })
       .catch((e: Error) => { setError(e.message); setLoading(false) })
@@ -115,6 +117,9 @@ export default function FilesPage() {
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Sidebar */}
       <div className="w-72 border-r border-border flex flex-col shrink-0">
+        <div className="px-3 pt-3">
+          <RepoBackLink />
+        </div>
         <div className="p-3 border-b border-border">
           <input
             value={search}

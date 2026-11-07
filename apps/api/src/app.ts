@@ -16,6 +16,7 @@ import analyzeRoutes from './routes/analyze.js'
 import sseRoutes from './routes/sse.js'
 import explainRoutes from './routes/explain.js'
 import graphRoutes from './routes/graph.js'
+import chatRoutes from './routes/chat.js'
 
 export async function buildApp() {
   const app = Fastify({ logger: loggerConfig })
@@ -32,6 +33,22 @@ export async function buildApp() {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({ error: error.message, code: error.code })
     }
+
+    // Fastify and its plugins raise errors that already carry a status — rate
+    // limiting (429) and schema validation (400) among them. Collapsing those
+    // into 500 told the client "we broke" when the real answer was "slow down".
+    const { statusCode, message, code } =
+      typeof error === 'object' && error !== null
+        ? (error as { statusCode?: number; message?: string; code?: string })
+        : {}
+
+    if (statusCode != null && statusCode >= 400 && statusCode < 500) {
+      return reply.status(statusCode).send({
+        error: message ?? 'Request failed',
+        ...(code ? { code } : {}),
+      })
+    }
+
     app.log.error(error)
     return reply.status(500).send({ error: 'Internal server error' })
   })
@@ -43,6 +60,7 @@ export async function buildApp() {
   await app.register(sseRoutes)
   await app.register(explainRoutes)
   await app.register(graphRoutes)
+  await app.register(chatRoutes)
 
   // Health check
   app.get('/health', async () => ({ ok: true }))
